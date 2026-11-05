@@ -67,7 +67,7 @@ export function buildInvoicePdf(sale: Sale, s: Settings) {
 
   // Items table box with column rules down to totals
   const top = 92;
-  const bottom = 205;
+  const bottom = 175;
   const cols = [L, 20, 104, 120, 136, 152, 168, R]; // # | desc | HSN | QTY | MRP | RATE | AMOUNT
   doc.rect(L, top, R - L, bottom - top);
   doc.line(L, top + 8, R, top + 8);
