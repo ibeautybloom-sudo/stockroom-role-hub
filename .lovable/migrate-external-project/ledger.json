@@ -1,0 +1,4 @@
+[{"capability":"code","source":"github prx003/stockroom-role-hub","outcome":"migrate","status":"verified","next_action":"done"},
+{"capability":"schema","source":"drizzle/migrations/0000_gk_mart_init.sql","outcome":"migrate","status":"verified","next_action":"applied"},
+{"capability":"records","source":"Lovable Cloud (shop_records, profiles)","outcome":"migrate","status":"pending","next_action":"request CSV exports"},
+{"capability":"auth","source":"email/password","outcome":"migrate","status":"pending","next_action":"request user export; first-login password reset"}]
