@@ -16,209 +16,157 @@ export const mrpDiscount = (sale: Sale) =>
 export function buildInvoicePdf(sale: Sale, s: Settings) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const W = 210;
-  const GREEN: [number, number, number] = [22, 128, 61];
-  const LIGHT: [number, number, number] = [244, 249, 244];
-  const GREY: [number, number, number] = [90, 90, 90];
+  const L = 12;
+  const R = W - 12;
+  const RED: [number, number, number] = [200, 16, 26];
+  const BLACK: [number, number, number] = [0, 0, 0];
+  doc.setTextColor(...BLACK);
 
-  // Page border
-  doc.setDrawColor(...GREEN);
-  doc.setLineWidth(0.4);
-  doc.rect(8, 8, W - 16, 281);
-
-  // GK logo watermark in background
-  if (s.showWatermark !== false) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const D = doc as any;
-      D.saveGraphicsState?.();
-      if (D.GState) D.setGState(new D.GState({ opacity: 0.08 }));
-      doc.addImage(s.logo || gkLogoDataUrl(), "PNG", W / 2 - 60, 100, 120, 120);
-      D.restoreGraphicsState?.();
-    } catch { /* ignore */ }
-  }
-
-  // Header band with shop name
-  doc.setFillColor(...GREEN);
-  doc.rect(8, 8, W - 16, 26, "F");
-  doc.setTextColor(255, 255, 255);
+  // Header: TAX INVOICE left, logo + shop details right
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.text(s.shopName, 15, 24);
+  doc.setFontSize(20);
+  doc.text("TAX INVOICE", 16, 28);
+  const logo = s.logo || gkLogoDataUrl();
+  try { doc.addImage(logo, "PNG", R - 22, 8, 22, 22); } catch { /* ignore */ }
+  doc.setFontSize(16);
+  doc.text(s.shopName.toUpperCase(), R, 37, { align: "right" });
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  if (s.address) doc.text(s.address, R, 43, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  const contact = [s.mobile && `Ph: ${s.mobile}`, s.email, s.gstin && `GSTIN: ${s.gstin}`].filter(Boolean).join("    ");
+  doc.text(contact, R, 49, { align: "right" });
+  doc.setDrawColor(...RED);
+  doc.setLineWidth(1.2);
+  doc.line(L, 53, R, 53);
+
+  // Bill to (left) | invoice meta (right)
+  doc.setLineWidth(0.3);
+  doc.setDrawColor(...BLACK);
   doc.setFontSize(11);
-  doc.text("TAX INVOICE", W - 15, 24, { align: "right" });
-
-  // Shop contact details (left) + invoice details (right)
-  doc.setTextColor(...GREY);
-  doc.setFontSize(9);
-  let hy = 42;
-  if (s.address) {
-    const addrLines = doc.splitTextToSize(s.address, 100) as string[];
-    doc.text(addrLines, 15, hy);
-    hy += addrLines.length * 4.5;
-  }
-  if (s.mobile) {
-    doc.text(`Phone: ${s.mobile}`, 15, hy);
-    hy += 4.5;
-  }
-  if (s.gstin) {
-    doc.text(`GSTIN: ${s.gstin}`, 15, hy);
-    hy += 4.5;
-  }
-
-  const metaRows: [string, string][] = [
-    ["Invoice No.", sale.invoiceNo],
-    ["Date", fmtDateTime(sale.date)],
-    ["Cashier", sale.cashier],
-  ];
-  const metaX = 132;
-  const metaY0 = 40;
-  doc.setDrawColor(200, 210, 200);
-  doc.setFillColor(...LIGHT);
-  doc.rect(metaX - 2, metaY0 - 5, W - 15 - metaX + 2, metaRows.length * 6 + 4, "FD");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  metaRows.forEach(([k, v], i) => {
-    doc.setTextColor(...GREY);
-    doc.text(k, metaX + 2, metaY0 + i * 6);
-    doc.setTextColor(30, 30, 30);
-    doc.text(v, W - 17, metaY0 + i * 6, { align: "right" });
-  });
-
-  // Bill To
-  const billToY = Math.max(hy + 4, metaY0 + metaRows.length * 6 + 3);
-  doc.setTextColor(...GREY);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text("BILL TO", 15, billToY);
-  doc.setTextColor(30, 30, 30);
+  doc.text("To:", 14, 61);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text(sale.customerName || "Walk-in Customer", 15, billToY + 5);
+  doc.text(sale.customerName || "Walk-in Customer", 22, 61);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  if (sale.customerMobile) doc.text(`Mobile: ${sale.customerMobile}`, 15, billToY + 10);
-
-  // Items table
-  autoTable(doc, {
-    startY: billToY + 16,
-    head: [["#", "Item", "HSN", "Qty", "MRP", "Rate", "Disc", "Discount", "GST%", "Amount"]],
-    body: sale.items.map((i, idx) => {
-      const save = i.mrp > i.price ? (i.mrp - i.price) * i.qty : 0;
-      return [
-        idx + 1,
-        i.name,
-        i.hsn,
-        `${i.qty} ${i.unit}`,
-        (i.mrp || i.price).toFixed(2),
-        i.price.toFixed(2),
-        i.discount.toFixed(2),
-        save > 0 ? save.toFixed(2) : "-",
-        i.gst,
-        i.total.toFixed(2),
-      ];
-    }),
-    theme: "grid",
-    styles: { fontSize: 8, cellPadding: 1.6, lineColor: [220, 228, 220] as [number, number, number] },
-    headStyles: { fillColor: GREEN, textColor: [255, 255, 255] as [number, number, number], fontSize: 8, fontStyle: "bold" },
-    alternateRowStyles: { fillColor: LIGHT },
-    columnStyles: {
-      0: { halign: "center", cellWidth: 8 },
-      3: { halign: "center", cellWidth: 16 },
-      4: { halign: "right" },
-      5: { halign: "right" },
-      6: { halign: "right" },
-      7: { halign: "right" },
-      8: { halign: "center", cellWidth: 12 },
-      9: { halign: "right", fontStyle: "bold" },
-    },
-  });
-
-  // Totals block (right side)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let y = (doc as any).lastAutoTable.finalY + 6;
-  const rows: [string, string, boolean?][] = [
-    ["Total MRP", inr(mrpTotal(sale))],
-    ["Subtotal", inr(sale.subtotal)],
-    ["Discount (MRP − our price)", "-" + inr(mrpDiscount(sale))],
-    ["Item Discount", "-" + inr(sale.itemDiscount)],
-    ["Bill Discount", "-" + inr(sale.billDiscount)],
-    ["Taxable Value", inr(sale.taxable)],
-    ["CGST", inr(sale.cgst)],
-    ["SGST", inr(sale.sgst)],
-    ["IGST", inr(sale.igst)],
-    ["Round Off", inr(sale.roundOff)],
-    ["GRAND TOTAL", inr(sale.total), true],
-    ["Payment", sale.paymentMethod],
+  if (sale.customerMobile) doc.text(`Mobile: ${sale.customerMobile}`, 22, 67);
+  doc.line(124, 57, 124, 86);
+  const meta: [string, string][] = [
+    ["Invoice Number:", sale.invoiceNo],
+    ["Date:", fmtDateTime(sale.date)],
+    ["Payment:", sale.paymentMethod],
+    ["Cashier:", sale.cashier],
   ];
-  const boxX = 118;
-  const boxW = W - 15 - boxX;
-  doc.setFillColor(...LIGHT);
-  doc.rect(boxX, y - 4, boxW, rows.length * 5.5 + 8, "F");
-  doc.setFontSize(9);
-  for (const [k, v, strong] of rows) {
-    if (strong) {
-      doc.setFillColor(...GREEN);
-      doc.rect(boxX, y - 4, boxW, 7, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.text(k, boxX + 2, y + 0.5);
-      doc.text(v, boxX + boxW - 2, y + 0.5, { align: "right" });
-      y += 7;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      continue;
-    }
-    doc.setTextColor(...GREY);
-    doc.text(k, boxX + 2, y);
-    doc.setTextColor(30, 30, 30);
-    doc.text(v, boxX + boxW - 2, y, { align: "right" });
-    y += 5.5;
-  }
-
-  // Savings banner
-  let bannerY = y + 6;
-  if (savedAmt(sale) > 0) {
-    const text = `You saved ${inr(savedAmt(sale))} on this bill!`;
-    doc.setFillColor(...GREEN);
-    doc.rect(15, bannerY, W - 30, 9, "F");
-    doc.setTextColor(255, 255, 255);
+  meta.forEach(([k, v], i) => {
+    doc.setFont("helvetica", "normal");
+    doc.text(k, 127, 62 + i * 7);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text(text, W / 2, bannerY + 6, { align: "center" });
-    bannerY += 14;
-  }
+    doc.text(v, 160, 62 + i * 7);
+  });
+  doc.line(L, 90, R, 90);
 
-  // Amount in words (Indian numbering)
-  const words = numberToIndianWords(Math.round(sale.total));
-  doc.setTextColor(...GREY);
+  // Items table box with column rules down to totals
+  const top = 92;
+  const bottom = 175;
+  const cols = [L, 20, 104, 120, 136, 152, 168, R]; // # | desc | HSN | QTY | MRP | RATE | AMOUNT
+  doc.rect(L, top, R - L, bottom - top);
+  doc.line(L, top + 8, R, top + 8);
+  cols.slice(1, -1).forEach((x) => doc.line(x, top, x, bottom));
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("Amount in words:", 15, bannerY + 2);
+  doc.setFontSize(10);
+  const heads = ["#", "DESCRIPTION", "HSN", "QTY", "MRP", "RATE", "AMOUNT"];
+  heads.forEach((h, i) => doc.text(h, (cols[i]! + cols[i + 1]!) / 2, top + 5.5, { align: "center" }));
   doc.setFont("helvetica", "normal");
-  doc.text(`Rupees ${words} only`, 15, bannerY + 6.5);
+  doc.setFontSize(9);
+  let y = top + 14;
+  sale.items.forEach((it, idx) => {
+    const lines = doc.splitTextToSize(`${it.name}${it.gst ? ` (GST ${it.gst}%)` : ""}`, cols[2]! - cols[1]! - 3) as string[];
+    if (y + lines.length * 4.5 > bottom - 2) return;
+    doc.text(String(idx + 1), (cols[0]! + cols[1]!) / 2, y, { align: "center" });
+    doc.text(lines, cols[1]! + 2, y);
+    doc.text(it.hsn || "", (cols[2]! + cols[3]!) / 2, y, { align: "center" });
+    doc.text(`${it.qty}`, (cols[3]! + cols[4]!) / 2, y, { align: "center" });
+    doc.text((it.mrp || it.price).toFixed(2), cols[5]! - 2, y, { align: "right" });
+    doc.text(it.price.toFixed(2), cols[6]! - 2, y, { align: "right" });
+    doc.text(it.total.toFixed(2), cols[7]! - 3, y, { align: "right" });
+    y += lines.length * 4.5 + 1.5;
+  });
 
-  // Footer
-  doc.setDrawColor(...GREEN);
-  doc.setLineWidth(0.4);
-  doc.line(15, 272, W - 15, 272);
-  doc.setTextColor(...GREY);
-  doc.setFontSize(8);
-  doc.text(s.footerNote, W / 2, 277, { align: "center" });
+  // Totals
+  const rows: [string, string, boolean][] = [
+    ["Total MRP", mrpTotal(sale).toFixed(2), false],
+    ["Discount", "-" + (mrpDiscount(sale) + sale.itemDiscount + sale.billDiscount).toFixed(2), false],
+    ["Taxable Value", sale.taxable.toFixed(2), false],
+    ["CGST", sale.cgst.toFixed(2), false],
+    ["SGST", sale.sgst.toFixed(2), false],
+    ...(sale.igst ? [["IGST", sale.igst.toFixed(2), false] as [string, string, boolean]] : []),
+    ["Round Off", sale.roundOff.toFixed(2), false],
+  ];
+  const tTop = bottom;
+  const tH = rows.length * 5.5 + 12;
+  doc.rect(L, tTop, R - L, tH);
+  doc.line(cols[6]!, tTop, cols[6]!, tTop + tH);
+  doc.line(cols[6]!, tTop + tH - 8, R, tTop + tH - 8);
+  let ty = tTop + 5;
+  doc.setFontSize(10);
+  rows.forEach(([k, v]) => {
+    doc.setFont("helvetica", "normal");
+    doc.text(k, cols[6]! - 3, ty, { align: "right" });
+    doc.text(v, R - 3, ty, { align: "right" });
+    ty += 5.5;
+  });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Invoice Amount", cols[6]! - 3, tTop + tH - 2.5, { align: "right" });
+  doc.text(sale.total.toFixed(2), R - 3, tTop + tH - 2.5, { align: "right" });
+
+  // Words
+  let by = tTop + tH;
+  doc.rect(L, by, R - L, 9);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(`Rupees ${numberToIndianWords(Math.round(sale.total))} Only.`, 14, by + 6);
+  by += 9;
+
+  // Terms
+  const terms = [
+    "Goods once sold will not be taken back.",
+    ...(savedAmt(sale) > 0 ? [`You saved Rs ${savedAmt(sale).toFixed(2)} on this bill.`] : []),
+    ...(s.footerNote ? [s.footerNote] : []),
+  ];
+  const termH = 9 + terms.length * 4.5;
+  doc.rect(L, by, R - L, termH);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("TERMS AND CONDITIONS:", 14, by + 5.5);
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(9);
+  terms.forEach((t, i) => doc.text(`* ${t}`, 14, by + 10 + i * 4.5));
+  by += termH;
+
+  // Wishes | signatory
+  const sH = 28;
+  doc.rect(L, by, R - L, sH);
+  doc.line(110, by, 110, by + sH);
   if (s.wishes) {
-    doc.setTextColor(...GREEN);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
-    doc.text(s.wishes, W / 2, 267, { align: "center" });
-    doc.setTextColor(...GREY);
-    doc.setFontSize(8);
+    doc.text(doc.splitTextToSize(s.wishes, 90) as string[], 14, by + 7);
+  }
+  if (s.upiId) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`UPI: ${s.upiId}`, 14, by + sH - 4);
   }
   doc.setFont("helvetica", "bold");
-  doc.text(`For ${s.shopName}`, W - 15, 277, { align: "right" });
+  doc.setFontSize(11);
+  doc.text(`For ${s.shopName.toUpperCase()}`, R - 3, by + 7, { align: "right" });
+  doc.setFontSize(9);
+  doc.text("Authorised Signatory", R - 3, by + sH - 4, { align: "right" });
+
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
-  doc.text("This is a computer generated invoice.", W / 2, 282, { align: "center" });
+  doc.text("This is a computer generated invoice.", W / 2, 290, { align: "center" });
   return doc;
 }
 
@@ -258,52 +206,79 @@ export function printA4(sale: Sale, s: Settings) {
 
 export function thermalHtml(sale: Sale, s: Settings) {
   const w = s.thermalWidth === 58 ? 220 : 300;
-  const line = "--------------------------------";
-  const logo = s.showWatermark !== false ? s.logo || gkLogoDataUrl(240) : "";
-  const logoSize = s.thermalWidth === 58 ? 54 : 72;
+  const dash = `<div class="d"></div>`;
+  const totalQty = sale.items.reduce((a, i) => a + i.qty, 0);
+  // GST slab summary
+  const slabs = new Map<number, { base: number; tax: number }>();
+  for (const i of sale.items) {
+    const g = i.gst || 0;
+    const base = s.gstInclusive ? i.total / (1 + g / 100) : i.total;
+    const cur = slabs.get(g) ?? { base: 0, tax: 0 };
+    cur.base += base;
+    cur.tax += base * (g / 100);
+    slabs.set(g, cur);
+  }
+  const d = new Date(sale.date);
+  const p = (n: number) => String(n).padStart(2, "0");
+  const dateStr = `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+  const timeStr = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const pays = sale.payments?.length ? sale.payments : [{ method: sale.paymentMethod, amount: sale.received }];
+  const kv = (k: string, v: string, cls = "") =>
+    `<tr class="${cls}"><td>${k}</td><td class="c" style="width:12px">:</td><td class="r">${v}</td></tr>`;
   return `<html><head><title>${sale.invoiceNo}</title><style>
-  body{font-family:'Courier New',monospace;font-size:12px;width:${w}px;margin:0 auto;padding:8px;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{margin:0}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:12px;width:${w}px;margin:0 auto;padding:8px;color:#000}
   .c{text-align:center}.r{text-align:right}.b{font-weight:700}
-  table{width:100%;border-collapse:collapse}td{font-size:11px;padding:1px 0}
-  .logo{display:block;margin:0 auto 6px;width:${logoSize}px;height:${logoSize}px;object-fit:contain}
+  .d{border-top:1px dashed #000;margin:4px 0}.s{border-top:1.5px solid #000;margin:3px 0}
+  table{width:100%;border-collapse:collapse}td,th{font-size:11px;padding:1px 0;vertical-align:top}
+  th{text-align:right;font-size:12px}th:first-child{text-align:left}
+  .big td{font-size:17px;font-weight:700;padding:3px 0}
   </style></head><body>
-  ${logo ? `<img class="logo" src="${logo}" alt="" />` : ""}
-  <div class="c b" style="font-size:15px">${s.shopName}</div>
-  <div class="c">${s.address}</div>
-  <div class="c">Ph: ${s.mobile}</div>
-  <div class="c">GSTIN: ${s.gstin}</div>
-  <div>${line}</div>
-  <div>Invoice: ${sale.invoiceNo}</div>
-  <div>Date: ${fmtDateTime(sale.date)}</div>
-  <div>Cashier: ${sale.cashier}</div>
-  <div>Customer: ${sale.customerName}</div>
-  <div>${line}</div>
+  ${dash}
+  <div class="c b" style="font-size:17px">${s.shopName.toUpperCase()}</div>
+  <div class="c b">${s.address}</div>
+  ${s.mobile ? `<div class="c b">Ph:${s.mobile}</div>` : ""}
+  ${s.gstin ? `<div class="c b">GSTIN: ${s.gstin}</div>` : ""}
+  <div class="c b" style="text-decoration:underline;margin:4px 0;font-size:13px">BILL</div>
+  <table><tr><td class="b">Bill No: ${sale.invoiceNo}</td><td class="r b">Date : ${dateStr} ${timeStr}</td></tr></table>
+  <div class="b" style="font-size:13px;margin:3px 0">Name : &nbsp; ${sale.customerName || "Walk-in Cash"}</div>
+  <div class="s"></div>
   <table>
-    <tr class="b"><td>Item</td><td class="r">Qty</td><td class="r">MRP</td><td class="r">Rate</td><td class="r">Amt</td></tr>
+    <tr><th>Item</th><th>Mrp</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
+    <tr><td colspan="5"><div class="s"></div></td></tr>
     ${sale.items
-      .map((i) => {
-        const save = i.mrp > i.price ? (i.mrp - i.price) * i.qty : 0;
-        return `<tr><td colspan="5">${i.name}</td></tr><tr><td></td><td class="r">${i.qty} ${i.unit}</td><td class="r">${(i.mrp || i.price).toFixed(2)}</td><td class="r">${i.price.toFixed(2)}</td><td class="r">${i.total.toFixed(2)}</td></tr>${save > 0 ? `<tr><td colspan="5" style="font-size:10px">* Discount ${save.toFixed(2)}</td></tr>` : ""}`;
-      })
+      .map((i) => `<tr><td colspan="5">${i.name.toUpperCase()}</td></tr><tr><td></td><td class="r">${Math.round(i.mrp || i.price)}</td><td class="r">${i.qty.toFixed(3)}</td><td class="r">${i.price.toFixed(2)}</td><td class="r">${i.total.toFixed(2)}</td></tr>`)
       .join("")}
   </table>
-  <div>${line}</div>
+  ${dash}
   <table>
-    <tr><td>Total MRP</td><td class="r">${mrpTotal(sale).toFixed(2)}</td></tr>
-    <tr><td>Subtotal</td><td class="r">${sale.subtotal.toFixed(2)}</td></tr>
-    <tr><td>Discount (MRP-our price)</td><td class="r">-${mrpDiscount(sale).toFixed(2)}</td></tr>
-    <tr><td>Discount</td><td class="r">-${(sale.itemDiscount + sale.billDiscount).toFixed(2)}</td></tr>
-    <tr><td>CGST</td><td class="r">${sale.cgst.toFixed(2)}</td></tr>
-    <tr><td>SGST</td><td class="r">${sale.sgst.toFixed(2)}</td></tr>
-    <tr><td>Round Off</td><td class="r">${sale.roundOff.toFixed(2)}</td></tr>
-    <tr class="b"><td>TOTAL</td><td class="r">${sale.total.toFixed(2)}</td></tr>
-    <tr><td>Paid (${sale.paymentMethod})</td><td class="r">${sale.received.toFixed(2)}</td></tr>
-    <tr><td>Change</td><td class="r">${sale.change.toFixed(2)}</td></tr>
+    ${kv("Bill Amount", sale.total.toFixed(2), "b")}
+    ${savedAmt(sale) > 0 ? kv("You Have Saved", savedAmt(sale).toFixed(2), "b") : ""}
   </table>
-  <div>${line}</div>
-  ${savedAmt(sale) > 0 ? `<div class="c b" style="font-size:13px">*** YOU SAVED Rs ${savedAmt(sale).toFixed(2)} ***</div><div>${line}</div>` : ""}
-  ${s.wishes ? `<div class="c b" style="font-size:13px">${s.wishes}</div>` : ""}
-  <div class="c">${s.footerNote}</div>
+  ${dash}
+  <table class="big">${kv("G.Total", sale.total.toFixed(2))}</table>
+  ${dash}
+  <table>
+    ${kv("Total Item", sale.items.length.toFixed(2), "b")}
+    ${kv("Total Qty", totalQty.toFixed(2), "b")}
+    ${kv("Payment Mode", "", "b")}
+  </table>
+  ${dash}
+  <table>
+    ${pays.map((x) => `<tr><td>${x.method}</td><td class="r">${x.amount.toFixed(2)}</td></tr>`).join("")}
+    ${sale.change > 0 ? `<tr><td>Change Due</td><td class="r">${sale.change.toFixed(2)}</td></tr>` : ""}
+  </table>
+  <table style="margin-top:4px">
+    <tr class="b"><td>CGST</td><td class="r">SGST</td><td class="r">CESS</td><td class="r">Base Amt</td><td class="r">Tax Amt</td></tr>
+    <tr><td colspan="5"><div class="d" style="margin:1px 0"></div></td></tr>
+    ${[...slabs.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([g, v]) => `<tr><td>${(g / 2).toFixed(2)}</td><td class="r">${(g / 2).toFixed(2)}</td><td class="r">0.00</td><td class="r">${v.base.toFixed(2)}</td><td class="r">${v.tax.toFixed(2)}</td></tr>`)
+      .join("")}
+  </table>
+  <div class="c b" style="font-size:13px;margin-top:8px">*** ${s.wishes || "THANK YOU &nbsp;VISIT AGAIN"} ***</div>
+  ${s.footerNote ? `<div class="c" style="font-size:10px">${s.footerNote}</div>` : ""}
+  ${dash}
   <script>window.onload=function(){window.print()}<\/script>
   </body></html>`;
 }
